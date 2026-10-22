@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alert inbox</title>
+<style>
+  :root{font-family:system-ui,sans-serif;color-scheme:dark;background:#111827;color:#f9fafb}
+  body{margin:0;padding:1.4rem;max-width:900px}h1{margin:.2rem 0}p{color:#cbd5e1;line-height:1.5}
+  button{border:0;border-radius:8px;padding:.7rem 1rem;font-weight:700;cursor:pointer;margin:.3rem .4rem .3rem 0}
+  #break{background:#ef4444;color:white}#restore{background:#34d399;color:#052e23}
+  #status{min-height:1.5rem}.event{border:1px solid #334155;border-radius:10px;padding:1rem;margin:.6rem 0}
+  .firing{border-color:#ef4444}.resolved{border-color:#34d399}.muted{color:#94a3b8}
+  dialog{background:#1f2937;color:white;border:2px solid #ef4444;border-radius:14px;max-width:520px;box-shadow:0 12px 60px #0009}
+  dialog::backdrop{background:#0009}dialog button{background:#e5e7eb;color:#111827}
+</style>
+<h1>Alert inbox</h1>
+<p>Grafana sends its webhook here. Trigger a checkout fault, watch its metrics in Grafana, then see the alert arrive in this tab.</p>
+<button id="break">Trigger checkout fault</button><button id="restore">Restore checkout</button>
+<p id="status" role="status">Waiting for Grafana notifications…</p>
+<h2>Notifications</h2><div id="events" aria-live="polite"></div>
+<dialog id="popup"><h2 id="popup-title"></h2><p id="popup-body"></p><button id="close">Dismiss</button></dialog>
+<script>
+const status=document.getElementById('status'),list=document.getElementById('events'),popup=document.getElementById('popup');
+let seen=Number(sessionStorage.getItem('seenAlert')||0),initialized=false;
+async function fault(mode){
+  status.textContent='Updating checkout…';
+  try{const r=await fetch('/api/fault/'+mode,{method:'POST'});if(!r.ok)throw Error(await r.text());
+    status.textContent=mode==='on'?'Checkout fault enabled. Grafana evaluates every 10 seconds; allow a short delay for the webhook.':'Checkout restored. Watch for the resolved notification.';
+  }catch(e){status.textContent='Could not update checkout: '+e.message;}
+}
+document.getElementById('break').onclick=()=>fault('on');
+document.getElementById('restore').onclick=()=>fault('off');
+document.getElementById('close').onclick=()=>popup.close();
+async function refresh(){
+  try{
+    const r=await fetch('/api/events',{cache:'no-store'});if(!r.ok)throw Error('receiver unavailable');
+    const events=await r.json();list.replaceChildren();
+    for(const e of [...events].reverse()){
+      const row=document.createElement('div');row.className='event '+e.status;
+      const title=document.createElement('strong');title.textContent=e.status.toUpperCase()+' · '+e.title;
+      const detail=document.createElement('p');detail.textContent=e.time+' · '+e.service+' · '+e.message;
+      row.append(title,detail);list.append(row);
+    }
+    if(!events.length){list.textContent='No notifications yet.';}
+    const latest=events.at(-1);
+    if(latest && latest.id>seen){
+      seen=latest.id;sessionStorage.setItem('seenAlert',String(seen));
+      if(latest.status==='firing'){
+        document.getElementById('popup-title').textContent='🚨 '+latest.title;
+        document.getElementById('popup-body').textContent='Grafana reports '+latest.service+' is firing. Inspect the dashboard and alert rule, then restore checkout.';
+        if(!popup.open)popup.showModal();
+      }else if(initialized){status.textContent='Grafana reports the alert is '+latest.status+'.';}
+    }
+    initialized=true;
+  }catch(e){status.textContent='Alert inbox connection lost: '+e.message;}
+}
+refresh();setInterval(refresh,2000);
+</script>
+</html>

@@ -1,0 +1,50 @@
+{
+  "uid": "metrics-lab",
+  "title": "Service metrics lab",
+  "tags": ["lab", "services"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Services up",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "lab-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum(up{job=\"lab-services\"})", "instant": true}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 5}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
+    },
+    {
+      "id": 2,
+      "title": "Checkout error ratio",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "lab-prometheus"},
+      "targets": [{"refId": "A", "expr": "lab_service_error_ratio{service=\"checkout\"}", "instant": true}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 0.2}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
+    },
+    {
+      "id": 3,
+      "title": "Errors by service (per second)",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 6},
+      "datasource": {"type": "prometheus", "uid": "lab-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (service) (rate(lab_service_requests_total{status=\"error\"}[1m]))", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "title": "Requests by service (per second)",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 15},
+      "datasource": {"type": "prometheus", "uid": "lab-prometheus"},
+      "targets": [{"refId": "A", "expr": "sum by (service) (rate(lab_service_requests_total[1m]))", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    }
+  ]
+}
