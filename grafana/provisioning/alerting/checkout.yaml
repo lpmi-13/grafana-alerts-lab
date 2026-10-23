@@ -1,20 +1,6 @@
 apiVersion: 1
-contactPoints:
-  - orgId: 1
-    name: Lab alert inbox
-    receivers:
-      - uid: lab_webhook
-        type: webhook
-        settings:
-          url: http://127.0.0.1:8081/webhook
-          httpMethod: POST
-policies:
-  - orgId: 1
-    receiver: Lab alert inbox
-    group_by: [grafana_folder, alertname]
-    group_wait: 0s
-    group_interval: 1m
-    repeat_interval: 1h
+# The contact point and notification policy are created by alert_viewer.py
+# through Grafana's provisioning API, so learners can add destinations at runtime.
 groups:
   - orgId: 1
     name: checkout

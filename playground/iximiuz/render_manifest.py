@@ -153,12 +153,13 @@ WantedBy=multi-user.target
                 "for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done",
                 "docker info >/dev/null",
                 "docker pull prom/prometheus:v3.2.1",
-                "docker pull grafana/grafana-oss:11.6.0",
+                "docker pull grafana/grafana:12.4.13",
                 "docker run -d --name lab-prometheus --restart unless-stopped --network host -v /opt/grafana-alerts-lab/prometheus.yml:/etc/prometheus/prometheus.yml:ro prom/prometheus:v3.2.1 --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.retention.time=6h --web.listen-address=0.0.0.0:9090",
-                "docker run -d --name lab-grafana --restart unless-stopped --network host -e GF_SECURITY_ADMIN_USER=admin -e GF_SECURITY_ADMIN_PASSWORD=lab-demo -e GF_AUTH_ANONYMOUS_ENABLED=true -e GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer -e GF_SECURITY_ALLOW_EMBEDDING=true -e GF_USERS_ALLOW_SIGN_UP=false -e GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/lab.json -v /opt/grafana-alerts-lab/grafana/provisioning:/etc/grafana/provisioning:ro -v /opt/grafana-alerts-lab/grafana/dashboards:/etc/grafana/dashboards:ro grafana/grafana-oss:11.6.0",
+                "docker run -d --name lab-grafana --restart unless-stopped --network host -e GF_UNIFIED_ALERTING_ALERTMANAGER_CONFIG_POLL_INTERVAL=10s -e GF_SECURITY_ADMIN_USER=admin -e GF_SECURITY_ADMIN_PASSWORD=lab-demo -e GF_AUTH_ANONYMOUS_ENABLED=true -e GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer -e GF_SECURITY_ALLOW_EMBEDDING=true -e GF_USERS_ALLOW_SIGN_UP=false -e GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/lab.json -v /opt/grafana-alerts-lab/grafana/provisioning:/etc/grafana/provisioning:ro -v /opt/grafana-alerts-lab/grafana/dashboards:/etc/grafana/dashboards:ro grafana/grafana:12.4.13",
                 "curl --retry 90 --retry-delay 2 --retry-connrefused -fsS http://127.0.0.1:9090/-/ready >/dev/null",
                 "curl --retry 90 --retry-delay 2 --retry-connrefused -fsS http://127.0.0.1:3000/api/health >/dev/null",
                 "curl --retry 30 --retry-delay 2 --retry-connrefused -fsS -u admin:lab-demo http://127.0.0.1:3000/api/v1/provisioning/alert-rules/checkout_error_ratio >/dev/null",
+                "curl --retry 30 --retry-delay 2 -fsS http://127.0.0.1:8081/api/destinations >/dev/null",
             ]
         task_name = f"init_{machine_name.replace('-', '_')}"
         tasks[task_name] = {
@@ -182,13 +183,39 @@ WantedBy=multi-user.target
         "title": "Grafana Alerts Lab",
         "description": "Explore metrics from five services across multiple VMs, trigger a Grafana alert, and watch its webhook appear in the lab.",
         "categories": ["linux", "observability"],
-        "markdown": (
-            "Open Grafana on the left and Alert inbox on the right. The dashboard shows five services "
-            "spread across the VMs. Click **Trigger checkout fault** in Alert inbox. Checkout's error ratio "
-            "rises to 75%, Grafana fires its provisioned alert, and a popup appears in the inbox. "
-            "Click **Restore checkout** to receive the resolved notification. "
-            "Grafana login for exploring alert configuration: `admin` / `lab-demo`.\n"
-        ),
+        "markdown": """## Trigger the alert
+
+1. Open **Grafana** on the left and **Alert inbox** on the right. The dashboard shows five services spread across the VMs.
+2. Click **Trigger checkout fault** in Alert inbox. Checkout's error ratio rises to 75%, Grafana fires its provisioned alert, and a popup appears in the inbox.
+3. Click **Restore checkout** to receive the resolved notification.
+
+Grafana login for exploring the alert rule and contact point: `admin` / `lab-demo`.
+
+## Send the alert to your own destination
+
+Grafana's **Lab alerts** contact point always notifies Alert inbox. Under **Your destinations** in Alert inbox, you can add one webhook URL and one PagerDuty integration key, and Grafana notifies them too. Grafana picks up a saved destination within about 10 seconds.
+
+Add your destination before you click **Trigger checkout fault**. An alert that is already firing is not resent to a replacement webhook URL until it resolves.
+
+### Your phone, with ntfy
+
+1. Install the [ntfy app](https://docs.ntfy.sh/subscribe/phone/) and subscribe to a hard to guess topic name, such as `grafana-lab-7f3k9q`. Anyone who knows the topic name can read its messages.
+2. Paste `https://ntfy.sh/<your-topic>` into **Webhook URL** and click **Save webhook**. Alert inbox adds ntfy's `template=grafana` option, so the push notification reads as an alert instead of raw JSON.
+
+### Discord
+
+1. In a Discord server where you can manage webhooks, open the channel's **Edit Channel → Integrations → Webhooks**, create a webhook, and click **Copy Webhook URL**.
+2. Paste it into **Webhook URL** and click **Save webhook**. Grafana sends it through its Discord integration.
+
+Slack incoming webhook URLs (`https://hooks.slack.com/...`) work the same way. Any other URL, such as one from webhook.site, receives Grafana's webhook JSON unchanged.
+
+### PagerDuty
+
+1. On a PagerDuty service, add an **Events API v2** integration and copy its 32 character **Integration Key**.
+2. Paste it into **PagerDuty integration key** and click **Save PagerDuty key**. A firing alert opens an incident and the resolved notification closes it.
+
+Click **Remove** to stop sending to a destination. Destinations last for this session only. Grafana masks Discord, Slack, and PagerDuty secrets, but anyone who can open this session's Grafana can read a plain webhook URL such as an ntfy topic. Links inside the notifications point to Grafana's address inside the VM (`localhost:3000`), so open Grafana from its tab instead.
+""",
         "playground": {
             "networks": [{"name": "local", "subnet": "172.16.0.0/24"}],
             "machines": machines,
@@ -203,11 +230,14 @@ WantedBy=multi-user.target
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vms", type=int, default=2, help="number of VMs, 2 to 5 (default: 2)")
-    parser.add_argument("--name", default="grafana-alerts-lab", help="playground name or existing slug")
+    parser.add_argument("--name", default="grafana-alerts-lab-2292969d", help="registered playground name, or a new name for labctl playground create")
     parser.add_argument("--output", type=Path, default=ROOT / "playground/iximiuz/manifest.yaml")
     args = parser.parse_args()
     manifest = render(args.vms, args.name)
-    args.output.write_text("# Generated by render_manifest.py; edit the source files instead.\n" + dump_yaml(manifest) + "\n")
+    args.output.write_text(
+        "# Generated by render_manifest.py; edit the source files instead.\n"
+        "# Publish with: bash playground/iximiuz/publish.sh\n" + dump_yaml(manifest) + "\n"
+    )
     print(f"Wrote {args.output} for {args.vms} VMs")
 
 

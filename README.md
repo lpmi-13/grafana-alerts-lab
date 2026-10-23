@@ -15,6 +15,15 @@ Grafana allows anonymous dashboard viewing. Sign in as `admin` / `lab-demo` to i
 
 This is a disposable teaching environment. The service traffic is synthetic, the error ratio is controlled by the fault button, and the inbox keeps notifications in memory for the current VM session.
 
+## Send alerts to your own destinations
+
+Alert inbox has a **Your destinations** section. Whatever you save there is added to Grafana's **Lab alerts** contact point next to the inbox webhook, so Grafana notifies both. Grafana picks up changes within about 10 seconds. Add a destination before triggering the fault: Grafana does not resend an alert that is already firing to a replacement webhook URL until the alert resolves.
+
+- **Webhook URL**: one URL, recognized by host. A Discord or Slack webhook URL uses Grafana's Discord or Slack integration. A `https://ntfy.sh/<topic>` URL gets ntfy's `template=grafana` formatting, so subscribing to the topic in the ntfy phone app gives you a push notification. Any other URL receives Grafana's webhook JSON as is.
+- **PagerDuty integration key**: the 32 character key from an Events API v2 integration on a PagerDuty service.
+
+Grafana masks Discord, Slack, and PagerDuty secrets, but anonymous Grafana viewers can read a plain webhook URL, so use a hard to guess ntfy topic. Nothing is stored outside the session, and nothing is committed to the manifest.
+
 ## Topology
 
 | VM | Default services | Other processes |
@@ -24,33 +33,40 @@ This is a disposable teaching environment. The service traffic is synthetic, the
 
 With three to five VMs, the five services are assigned round robin to the requested VMs. Prometheus targets and the inbox's checkout address are generated to match. Each VM has a terminal tab.
 
-## Render or deploy
+## How it's deployed on iximiuz Labs
 
-The checked in [manifest](playground/iximiuz/manifest.yaml) is the two VM default. Render a different layout before deploying:
+Everything ships in one custom playground, `grafana-alerts-lab-2292969d`, a `flexbox` based playground. [render_manifest.py](playground/iximiuz/render_manifest.py) embeds the app, the Grafana provisioning files, and the dashboard as iximiuz startup files. It also writes the playground's landing page, the manifest's `markdown` field, which walks learners through the incident and through adding a webhook or PagerDuty destination. The monitoring VM uses the official `docker` rootfs; other VMs use `ubuntu-24-04`. Init tasks start the Python services and pull the pinned Prometheus and Grafana images, so there is no custom rootfs image or separate content to publish.
 
-```bash
-python3 playground/iximiuz/render_manifest.py --vms 3
-```
-
-The renderer embeds the source files as iximiuz startup files. The monitoring VM uses the official `docker` rootfs; other VMs use `ubuntu-24-04`. Init tasks start the Python services and pull the pinned Prometheus and Grafana images. No custom rootfs publication is needed for this MVP.
-
-With `labctl` installed and authenticated, create a playground or update an existing slug:
+After changing anything, publish with `labctl` installed and authenticated:
 
 ```bash
 labctl auth login
-bash scripts/deploy.sh create 2
-bash scripts/deploy.sh update grafana-alerts-lab-2292969d 3
+bash playground/iximiuz/publish.sh
+VMS=3 bash playground/iximiuz/publish.sh   # a different layout, 2 to 5 VMs
+```
+
+`publish.sh` renders the manifest to a temporary file, runs `labctl playground update`, and only then records the result in the checked in [manifest](playground/iximiuz/manifest.yaml). A failed update leaves the manifest as it was. Set `PLAYGROUND_NAME` to publish to a different playground. Updating the definition does not change running sessions; start a new one to test it:
+
+```bash
 labctl playground start grafana-alerts-lab-2292969d
 ```
 
-`create` returns the suffixed playground name used for later updates and starts. Updating the definition does not change already running sessions; start a new session to test the new layout. The official iximiuz [manifest reference](https://labs.iximiuz.com/docs/custom-playgrounds/manifest-reference) documents the VM, startup file, init task, and tab fields.
+To create a new playground instead, render it under an unsuffixed name, create it, and use the suffixed name `labctl` returns as `PLAYGROUND_NAME` from then on:
+
+```bash
+python3 playground/iximiuz/render_manifest.py --name grafana-alerts-lab --output /tmp/grafana-alerts-lab.yaml
+labctl playground create grafana-alerts-lab --base flexbox -f /tmp/grafana-alerts-lab.yaml
+```
+
+The official iximiuz [manifest reference](https://labs.iximiuz.com/docs/custom-playgrounds/manifest-reference) documents the VM, startup file, init task, tab, and `markdown` fields.
 
 ## Files
 
-- [render_manifest.py](playground/iximiuz/render_manifest.py) builds the configurable, self contained playground manifest.
+- [render_manifest.py](playground/iximiuz/render_manifest.py) builds the configurable, self contained playground manifest, including its landing page.
+- [publish.sh](playground/iximiuz/publish.sh) renders the manifest and updates the playground on iximiuz Labs.
 - [service.py](app/service.py) serves the five simulated services and Prometheus metrics.
-- [alert_viewer.py](app/alert_viewer.py) receives Grafana webhooks and serves the inbox UI.
-- [checkout.yaml](grafana/provisioning/alerting/checkout.yaml) provisions the Grafana alert, webhook contact point, and notification policy.
+- [alert_viewer.py](app/alert_viewer.py) receives Grafana webhooks, serves the inbox UI, and manages the **Lab alerts** contact point and notification policy through Grafana's provisioning API. Resources provisioned from files cannot be changed through that API, so these are created at runtime.
+- [checkout.yaml](grafana/provisioning/alerting/checkout.yaml) provisions the Grafana alert rule.
 - [lab.json](grafana/dashboards/lab.json) defines the dashboard.
 
 Grafana provisioning follows the official [file provisioning guide](https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/).

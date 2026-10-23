@@ -12,11 +12,31 @@
   .firing{border-color:#ef4444}.resolved{border-color:#34d399}.muted{color:#94a3b8}
   dialog{background:#1f2937;color:white;border:2px solid #ef4444;border-radius:14px;max-width:520px;box-shadow:0 12px 60px #0009}
   dialog::backdrop{background:#0009}dialog button{background:#e5e7eb;color:#111827}
+  .destination{border:1px solid #334155;border-radius:10px;padding:1rem;margin:.6rem 0}
+  .destination label{display:block;font-weight:700;margin-bottom:.4rem}
+  .destination input{box-sizing:border-box;width:100%;padding:.65rem;border:1px solid #475569;border-radius:8px;background:#0f172a;color:#f9fafb;font:inherit}
+  .destination p{margin:.4rem 0}.save{background:#60a5fa;color:#0b1220}.remove{background:#374151;color:#f9fafb}
 </style>
 <h1>Alert inbox</h1>
 <p>Grafana sends its webhook here. Trigger a checkout fault, watch its metrics in Grafana, then see the alert arrive in this tab.</p>
 <button id="break">Trigger checkout fault</button><button id="restore">Restore checkout</button>
 <p id="status" role="status">Waiting for Grafana notifications…</p>
+<h2>Your destinations</h2>
+<p>Grafana's <strong>Lab alerts</strong> contact point always notifies this inbox. Add your own destinations and Grafana notifies them too. They last for this playground session only.</p>
+<form class="destination" data-kind="webhook">
+  <label for="webhook-url">Webhook URL</label>
+  <input id="webhook-url" name="url" type="url" required placeholder="https://ntfy.sh/your-hard-to-guess-topic">
+  <p class="muted">Discord and Slack webhook URLs use Grafana's Discord and Slack integrations. ntfy.sh topics get ntfy's Grafana template, so subscribe to the topic in the ntfy phone app to get a push notification. Any other URL receives Grafana's webhook JSON. Anyone who can open this session's Grafana can read a plain webhook URL; Discord and Slack URLs are masked.</p>
+  <button class="save">Save webhook</button><button class="remove" type="button">Remove</button>
+  <p class="state" role="status">Checking Grafana…</p>
+</form>
+<form class="destination" data-kind="pagerduty">
+  <label for="pagerduty-key">PagerDuty integration key</label>
+  <input id="pagerduty-key" name="key" type="password" required autocomplete="off" spellcheck="false" minlength="32" maxlength="32" placeholder="32 character Events API v2 key">
+  <p class="muted">Create an Events API v2 integration on a PagerDuty service and paste its integration key. Grafana stores it as a masked secret.</p>
+  <button class="save">Save PagerDuty key</button><button class="remove" type="button">Remove</button>
+  <p class="state" role="status">Checking Grafana…</p>
+</form>
 <h2>Notifications</h2><div id="events" aria-live="polite"></div>
 <dialog id="popup"><h2 id="popup-title"></h2><p id="popup-body"></p><button id="close">Dismiss</button></dialog>
 <script>
@@ -55,5 +75,30 @@ async function refresh(){
   }catch(e){status.textContent='Alert inbox connection lost: '+e.message;}
 }
 refresh();setInterval(refresh,2000);
+const forms=[...document.querySelectorAll('form[data-kind]')];
+function showDestinations(configured){
+  for(const form of forms){const label=configured[form.dataset.kind];form.querySelector('.state').textContent=label?'Active: '+label+'.':'Not configured.';}
+}
+async function destinations(path='',options={}){
+  const r=await fetch('/api/destinations'+path,{cache:'no-store',...options});
+  const data=await r.json().catch(()=>({error:r.statusText}));
+  if(!r.ok)throw Object.assign(Error(data.error||r.statusText),{status:r.status});
+  showDestinations(data);
+}
+async function loadDestinations(){
+  try{await destinations();}
+  catch(e){for(const form of forms)form.querySelector('.state').textContent=e.message;if(e.status===503)setTimeout(loadDestinations,3000);}
+}
+for(const form of forms){
+  const kind=form.dataset.kind,input=form.querySelector('input'),state=form.querySelector('.state');
+  async function change(method,body,verb){
+    state.textContent=verb+'…';
+    try{await destinations('/'+kind,{method,headers:{'Content-Type':'application/json'},body:body&&JSON.stringify(body)});if(body)input.value='';}
+    catch(e){state.textContent='Could not update: '+e.message;}
+  }
+  form.onsubmit=e=>{e.preventDefault();change('POST',{[input.name]:input.value.trim()},'Saving');};
+  form.querySelector('.remove').onclick=()=>change('DELETE',null,'Removing');
+}
+loadDestinations();
 </script>
 </html>
