@@ -191,6 +191,15 @@ WantedBy=multi-user.target
 
 Grafana login for exploring the alert rule and contact point: `admin` / `lab-demo`.
 
+## Create your own alert and webhook in Grafana
+
+1. Sign in to the **Grafana** tab as `admin` / `lab-demo`. Open **Alerts & IRM → Alerting → Notification configuration → Contact points**, click **New contact point**, choose **Webhook**, enter your URL, and save.
+2. Open **Alerts & IRM → Alert rules → New alert rule**. Query **Prometheus** with `lab_service_error_ratio{service="checkout"}` and set the condition to **is above 0.2**.
+3. Choose the **Lab** folder and create a new evaluation group, such as `my-alerts`, with a 10 second interval. Set the pending period to **None** or `0s`.
+4. Under notifications, choose **Select contact point** and select your new webhook contact point. Save the rule, then click **Trigger checkout fault** in Alert inbox to test it.
+
+The supplied checkout rule is file-provisioned and read-only in Grafana. Your new rule can send directly to your webhook; it does not need a notification policy change. Both checkout rules may notify you for the same fault. The **Lab alerts** contact point and default policy are editable in the UI.
+
 ## Send the alert to your own destination
 
 Grafana's **Lab alerts** contact point always notifies Alert inbox. Under **Your destinations** in Alert inbox, you can add one webhook URL and one PagerDuty integration key, and Grafana notifies them too. Grafana picks up a saved destination within about 10 seconds.

@@ -24,6 +24,17 @@ Alert inbox has a **Your destinations** section. Whatever you save there is adde
 
 Grafana masks Discord, Slack, and PagerDuty secrets, but anonymous Grafana viewers can read a plain webhook URL, so use a hard to guess ntfy topic. Nothing is stored outside the session, and nothing is committed to the manifest.
 
+## Create an alert and webhook directly in the Grafana UI
+
+You can also set up both directly in the Grafana UI. Sign in to the **Grafana** tab as `admin` / `lab-demo`; anonymous viewing cannot save alerting resources.
+
+1. Open **Alerts & IRM → Alerting → Notification configuration → Contact points**. Click **New contact point**, give it a name, select **Webhook**, enter your destination URL, and save it.
+2. Open **Alerts & IRM → Alert rules → New alert rule**. Name the rule, select the **Prometheus** data source, and use `lab_service_error_ratio{service="checkout"}` as the query. Set the condition to **is above 0.2**.
+3. Choose the **Lab** folder and create a new evaluation group (for example, `my-alerts`) with a 10 second interval. Set the pending period to **None** or `0s`.
+4. Under notifications, choose **Select contact point** and select the webhook contact point you just created. Save the rule, then use **Trigger checkout fault** in Alert inbox to test it.
+
+The checkout alert supplied with the lab is file-provisioned, so Grafana displays it as read-only. Create your rule in a new evaluation group. The **Lab alerts** contact point and default notification policy are editable in Grafana too; the inbox uses that contact point for its sample alert. A rule that selects your new contact point directly sends to your webhook without changing the default policy. Creating another checkout rule can produce two notifications for the same fault.
+
 ## Topology
 
 | VM | Default services | Other processes |

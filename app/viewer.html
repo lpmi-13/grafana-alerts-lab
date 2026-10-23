@@ -23,6 +23,7 @@
 <p id="status" role="status">Waiting for Grafana notifications…</p>
 <h2>Your destinations</h2>
 <p>Grafana's <strong>Lab alerts</strong> contact point always notifies this inbox. Add your own destinations and Grafana notifies them too. They last for this playground session only.</p>
+<p class="muted">Prefer to set up the alert yourself? Sign in to the Grafana tab as <code>admin</code> / <code>lab-demo</code>. Use <strong>Alerts &amp; IRM → Alerting → Notification configuration → Contact points</strong> to create a Webhook contact point, then <strong>Alert rules → New alert rule</strong> to create a rule and select that contact point.</p>
 <form class="destination" data-kind="webhook">
   <label for="webhook-url">Webhook URL</label>
   <input id="webhook-url" name="url" type="url" required placeholder="https://ntfy.sh/your-hard-to-guess-topic">

@@ -47,9 +47,13 @@ ROUTING_LOCK = threading.Lock()
 
 def grafana(method, path, body=None):
     data = None if body is None else json.dumps(body).encode()
+    headers = {"Authorization": GRAFANA_AUTH, "Content-Type": "application/json"}
+    if method in ("POST", "PUT"):
+        # Let learners edit API-created contact points and policies in Grafana.
+        headers["X-Disable-Provenance"] = "true"
     request = urllib.request.Request(
         f"{GRAFANA_URL}/api/v1/provisioning{path}", data=data, method=method,
-        headers={"Authorization": GRAFANA_AUTH, "Content-Type": "application/json"},
+        headers=headers,
     )
     with urllib.request.urlopen(request, timeout=5) as response:
         return json.loads(response.read() or b"null")
@@ -71,7 +75,11 @@ def integrations():
 def ensure_routing():
     if not any(item["uid"] == INBOX["uid"] for item in integrations()):
         grafana("POST", "/contact-points", INBOX)
-    grafana("PUT", "/policies", POLICY)
+    policy = grafana("GET", "/policies")
+    # Initialize Grafana's default route once. Keep later UI changes, including
+    # child policies, when the inbox service restarts.
+    if policy.get("receiver") in ("empty", "grafana-default-email") and not policy.get("routes"):
+        grafana("PUT", "/policies", POLICY)
 
 
 def wait_for_grafana():

@@ -10,36 +10,45 @@ categories:
   - "observability"
 markdown: |
   ## Trigger the alert
-  
+
   1. Open **Grafana** on the left and **Alert inbox** on the right. The dashboard shows five services spread across the VMs.
   2. Click **Trigger checkout fault** in Alert inbox. Checkout's error ratio rises to 75%, Grafana fires its provisioned alert, and a popup appears in the inbox.
   3. Click **Restore checkout** to receive the resolved notification.
-  
+
   Grafana login for exploring the alert rule and contact point: `admin` / `lab-demo`.
-  
+
+  ## Create your own alert and webhook in Grafana
+
+  1. Sign in to the **Grafana** tab as `admin` / `lab-demo`. Open **Alerts & IRM → Alerting → Notification configuration → Contact points**, click **New contact point**, choose **Webhook**, enter your URL, and save.
+  2. Open **Alerts & IRM → Alert rules → New alert rule**. Query **Prometheus** with `lab_service_error_ratio{service="checkout"}` and set the condition to **is above 0.2**.
+  3. Choose the **Lab** folder and create a new evaluation group, such as `my-alerts`, with a 10 second interval. Set the pending period to **None** or `0s`.
+  4. Under notifications, choose **Select contact point** and select your new webhook contact point. Save the rule, then click **Trigger checkout fault** in Alert inbox to test it.
+
+  The supplied checkout rule is file-provisioned and read-only in Grafana. Your new rule can send directly to your webhook; it does not need a notification policy change. Both checkout rules may notify you for the same fault. The **Lab alerts** contact point and default policy are editable in the UI.
+
   ## Send the alert to your own destination
-  
+
   Grafana's **Lab alerts** contact point always notifies Alert inbox. Under **Your destinations** in Alert inbox, you can add one webhook URL and one PagerDuty integration key, and Grafana notifies them too. Grafana picks up a saved destination within about 10 seconds.
-  
+
   Add your destination before you click **Trigger checkout fault**. An alert that is already firing is not resent to a replacement webhook URL until it resolves.
-  
+
   ### Your phone, with ntfy
-  
+
   1. Install the [ntfy app](https://docs.ntfy.sh/subscribe/phone/) and subscribe to a hard to guess topic name, such as `grafana-lab-7f3k9q`. Anyone who knows the topic name can read its messages.
   2. Paste `https://ntfy.sh/<your-topic>` into **Webhook URL** and click **Save webhook**. Alert inbox adds ntfy's `template=grafana` option, so the push notification reads as an alert instead of raw JSON.
-  
+
   ### Discord
-  
+
   1. In a Discord server where you can manage webhooks, open the channel's **Edit Channel → Integrations → Webhooks**, create a webhook, and click **Copy Webhook URL**.
   2. Paste it into **Webhook URL** and click **Save webhook**. Grafana sends it through its Discord integration.
-  
+
   Slack incoming webhook URLs (`https://hooks.slack.com/...`) work the same way. Any other URL, such as one from webhook.site, receives Grafana's webhook JSON unchanged.
-  
+
   ### PagerDuty
-  
+
   1. On a PagerDuty service, add an **Events API v2** integration and copy its 32 character **Integration Key**.
   2. Paste it into **PagerDuty integration key** and click **Save PagerDuty key**. A firing alert opens an incident and the resolved notification closes it.
-  
+
   Click **Remove** to stop sending to a destination. Destinations last for this session only. Grafana masks Discord, Slack, and PagerDuty secrets, but anyone who can open this session's Grafana can read a plain webhook URL such as an ntfy topic. Links inside the notifications point to Grafana's address inside the VM (`localhost:3000`), so open Grafana from its tab instead.
 playground:
   networks:
@@ -103,14 +112,14 @@ playground:
       content: |
         #!/usr/bin/env python3
         """Five tiny HTTP services with Prometheus metrics and an injectable fault."""
-        
+
         import json
         import sys
         import threading
         import time
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-        
-        
+
+
         SERVICES = {
             "catalog": 9101,
             "cart": 9102,
@@ -118,8 +127,8 @@ playground:
             "payments": 9104,
             "shipping": 9105,
         }
-        
-        
+
+
         class State:
             def __init__(self, name):
                 self.name = name
@@ -128,7 +137,7 @@ playground:
                 self.errors = 0
                 self.tick = 0
                 self.lock = threading.Lock()
-        
+
             def record(self):
                 with self.lock:
                     self.tick += 1
@@ -138,7 +147,7 @@ playground:
                     else:
                         self.ok += 1
                     return failed
-        
+
             def metrics(self):
                 with self.lock:
                     fault, ok, errors = self.fault, self.ok, self.errors
@@ -154,8 +163,8 @@ playground:
                     "# TYPE lab_service_fault_enabled gauge\n"
                     f'lab_service_fault_enabled{{service="{self.name}"}} {1 if fault else 0}\n'
                 ).encode()
-        
-        
+
+
         def handler_for(state):
             class Handler(BaseHTTPRequestHandler):
                 def respond(self, status, body, content_type="application/json"):
@@ -164,7 +173,7 @@ playground:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
-        
+
                 def do_GET(self):
                     if self.path == "/metrics":
                         self.respond(200, state.metrics(), "text/plain; version=0.0.4")
@@ -176,7 +185,7 @@ playground:
                         self.respond(503 if failed else 200, body)
                     else:
                         self.respond(404, b'{"error":"not found"}')
-        
+
                 def do_POST(self):
                     if self.path not in ("/fault/on", "/fault/off"):
                         self.respond(404, b'{"error":"not found"}')
@@ -184,25 +193,25 @@ playground:
                     with state.lock:
                         state.fault = self.path.endswith("/on")
                     self.respond(200, json.dumps({"service": state.name, "fault": state.fault}).encode())
-        
+
             return Handler
-        
-        
+
+
         def main():
             if len(sys.argv) != 2 or sys.argv[1] not in SERVICES:
                 raise SystemExit("usage: service.py <catalog|cart|checkout|payments|shipping>")
             name = sys.argv[1]
             state = State(name)
-        
+
             def generate_traffic():
                 while True:
                     state.record()
                     time.sleep(1)
-        
+
             threading.Thread(target=generate_traffic, daemon=True).start()
             ThreadingHTTPServer(("0.0.0.0", SERVICES[name]), handler_for(state)).serve_forever()
-        
-        
+
+
         if __name__ == "__main__":
             main()
     -
@@ -214,14 +223,14 @@ playground:
         Description=Metrics lab service %i
         After=network-online.target
         Wants=network-online.target
-        
+
         [Service]
         Type=simple
         User=laborant
         ExecStart=/usr/bin/python3 /opt/grafana-alerts-lab/service.py %i
         Restart=always
         RestartSec=2
-        
+
         [Install]
         WantedBy=multi-user.target
     -
@@ -231,7 +240,7 @@ playground:
       content: |
         #!/usr/bin/env python3
         """In-playground Grafana webhook receiver, incident display, and destination manager."""
-        
+
         import base64
         import json
         import os
@@ -244,15 +253,15 @@ playground:
         import urllib.request
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         from pathlib import Path
-        
-        
+
+
         PAGE = Path(__file__).with_name("viewer.html").read_bytes()
         CHECKOUT_URL = os.environ.get("CHECKOUT_URL", "http://127.0.0.1:9103")
         GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://127.0.0.1:3000")
         GRAFANA_AUTH = "Basic " + base64.b64encode(os.environ.get("GRAFANA_AUTH", "admin:lab-demo").encode()).decode()
         EVENTS = []
         LOCK = threading.Lock()
-        
+
         # Every lab alert goes to one contact point. The inbox webhook is always one of
         # its integrations; the learner's webhook and PagerDuty service are optional extras.
         CONTACT_POINT = "Lab alerts"
@@ -274,18 +283,22 @@ playground:
         LABELS = {"discord": "Discord webhook", "slack": "Slack webhook", "pagerduty": "PagerDuty Events API"}
         ROUTING_READY = threading.Event()
         ROUTING_LOCK = threading.Lock()
-        
-        
+
+
         def grafana(method, path, body=None):
             data = None if body is None else json.dumps(body).encode()
+            headers = {"Authorization": GRAFANA_AUTH, "Content-Type": "application/json"}
+            if method in ("POST", "PUT"):
+                # Let learners edit API-created contact points and policies in Grafana.
+                headers["X-Disable-Provenance"] = "true"
             request = urllib.request.Request(
                 f"{GRAFANA_URL}/api/v1/provisioning{path}", data=data, method=method,
-                headers={"Authorization": GRAFANA_AUTH, "Content-Type": "application/json"},
+                headers=headers,
             )
             with urllib.request.urlopen(request, timeout=5) as response:
                 return json.loads(response.read() or b"null")
-        
-        
+
+
         def grafana_error(error):
             if isinstance(error, urllib.error.HTTPError):
                 try:
@@ -293,18 +306,22 @@ playground:
                 except (ValueError, KeyError, TypeError):
                     return f"Grafana returned {error.code}"
             return f"Grafana is unreachable: {error}"
-        
-        
+
+
         def integrations():
             return grafana("GET", "/contact-points?name=" + urllib.parse.quote(CONTACT_POINT))
-        
-        
+
+
         def ensure_routing():
             if not any(item["uid"] == INBOX["uid"] for item in integrations()):
                 grafana("POST", "/contact-points", INBOX)
-            grafana("PUT", "/policies", POLICY)
-        
-        
+            policy = grafana("GET", "/policies")
+            # Initialize Grafana's default route once. Keep later UI changes, including
+            # child policies, when the inbox service restarts.
+            if policy.get("receiver") in ("empty", "grafana-default-email") and not policy.get("routes"):
+                grafana("PUT", "/policies", POLICY)
+
+
         def wait_for_grafana():
             while True:
                 try:
@@ -316,20 +333,20 @@ playground:
                     if isinstance(error, urllib.error.HTTPError):
                         print(grafana_error(error), file=sys.stderr, flush=True)
                     time.sleep(2)
-        
-        
+
+
         def describe(integration):
             if integration["type"] == "webhook":
                 host = urllib.parse.urlsplit(integration["settings"].get("url", "")).hostname
                 return f"Webhook to {host or 'an unknown host'}"
             return LABELS.get(integration["type"], integration["type"])
-        
-        
+
+
         def destinations():
             configured = {item["uid"]: describe(item) for item in integrations()}
             return {kind: configured.get(uid) for kind, uid in DESTINATIONS.items()}
-        
-        
+
+
         def webhook_integration(url):
             """Pick the Grafana integration that can talk to the URL's service."""
             url = url.strip() if isinstance(url, str) else ""
@@ -345,15 +362,15 @@ playground:
                 query = urllib.parse.urlencode(urllib.parse.parse_qsl(parts.query) + [("template", "grafana")])
                 url = urllib.parse.urlunsplit(parts._replace(query=query))
             return "webhook", {"url": url, "httpMethod": "POST"}
-        
-        
+
+
         def pagerduty_integration(key):
             key = key.strip() if isinstance(key, str) else ""
             if not re.fullmatch(r"[A-Za-z0-9]{32}", key):
                 raise ValueError("A PagerDuty Events API v2 integration key is 32 letters and digits.")
             return "pagerduty", {"integrationKey": key}
-        
-        
+
+
         def save_destination(kind, payload):
             if kind == "webhook":
                 integration_type, settings = webhook_integration(payload.get("url"))
@@ -366,8 +383,8 @@ playground:
                 if error.code != 404:
                     raise
                 grafana("POST", "/contact-points", integration)
-        
-        
+
+
         class Handler(BaseHTTPRequestHandler):
             def respond(self, code, body, content_type="application/json"):
                 self.send_response(code)
@@ -376,7 +393,7 @@ playground:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-        
+
             def read_json(self):
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > 1_000_000:
@@ -385,7 +402,7 @@ playground:
                 if not isinstance(payload, dict):
                     raise ValueError("expected a JSON object")
                 return payload
-        
+
             def manage_destinations(self, method):
                 kind = self.path.removeprefix("/api/destinations/")
                 if method != "GET" and kind not in DESTINATIONS:
@@ -406,7 +423,7 @@ playground:
                 except OSError as error:
                     code, body = 502, {"error": grafana_error(error)}
                 self.respond(code, json.dumps(body).encode())
-        
+
             def do_GET(self):
                 if self.path == "/":
                     self.respond(200, PAGE, "text/html; charset=utf-8")
@@ -420,10 +437,10 @@ playground:
                     self.manage_destinations("GET")
                 else:
                     self.respond(404, b'{"error":"not found"}')
-        
+
             def do_DELETE(self):
                 self.manage_destinations("DELETE")
-        
+
             def do_POST(self):
                 if self.path in ("/api/fault/on", "/api/fault/off"):
                     action = self.path.rsplit("/", 1)[-1]
@@ -434,11 +451,11 @@ playground:
                     except (urllib.error.URLError, TimeoutError) as error:
                         self.respond(502, json.dumps({"error": str(error)}).encode())
                     return
-        
+
                 if self.path.startswith("/api/destinations/"):
                     self.manage_destinations("POST")
                     return
-        
+
                 if self.path != "/webhook":
                     self.respond(404, b'{"error":"not found"}')
                     return
@@ -460,8 +477,8 @@ playground:
                     self.respond(200, b'{"received":true}')
                 except (ValueError, json.JSONDecodeError) as error:
                     self.respond(400, json.dumps({"error": str(error)}).encode())
-        
-        
+
+
         if __name__ == "__main__":
             threading.Thread(target=wait_for_grafana, daemon=True).start()
             ThreadingHTTPServer(("0.0.0.0", 8081), Handler).serve_forever()
@@ -497,6 +514,7 @@ playground:
         <p id="status" role="status">Waiting for Grafana notifications…</p>
         <h2>Your destinations</h2>
         <p>Grafana's <strong>Lab alerts</strong> contact point always notifies this inbox. Add your own destinations and Grafana notifies them too. They last for this playground session only.</p>
+        <p class="muted">Prefer to set up the alert yourself? Sign in to the Grafana tab as <code>admin</code> / <code>lab-demo</code>. Use <strong>Alerts &amp; IRM → Alerting → Notification configuration → Contact points</strong> to create a Webhook contact point, then <strong>Alert rules → New alert rule</strong> to create a rule and select that contact point.</p>
         <form class="destination" data-kind="webhook">
           <label for="webhook-url">Webhook URL</label>
           <input id="webhook-url" name="url" type="url" required placeholder="https://ntfy.sh/your-hard-to-guess-topic">
@@ -587,7 +605,7 @@ playground:
         Description=Metrics lab alert inbox
         After=network-online.target
         Wants=network-online.target
-        
+
         [Service]
         Type=simple
         User=laborant
@@ -595,7 +613,7 @@ playground:
         ExecStart=/usr/bin/python3 /opt/grafana-alerts-lab/alert_viewer.py
         Restart=always
         RestartSec=2
-        
+
         [Install]
         WantedBy=multi-user.target
       machines:

@@ -1,6 +1,8 @@
 import importlib.util
+import io
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "app/alert_viewer.py"
@@ -10,6 +12,59 @@ SPEC.loader.exec_module(MODULE)
 
 
 class DestinationTests(unittest.TestCase):
+    def test_api_created_resources_are_editable_in_grafana(self):
+        requests = []
+
+        def respond(request, timeout):
+            requests.append(request)
+            return io.BytesIO(b"{}")
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=respond):
+            MODULE.grafana("POST", "/contact-points", MODULE.INBOX)
+            MODULE.grafana("PUT", "/policies", MODULE.POLICY)
+            MODULE.grafana("GET", "/policies")
+
+        self.assertEqual([request.get_header("X-disable-provenance") for request in requests], ["true", "true", None])
+
+    def test_restart_keeps_policies_edited_in_grafana(self):
+        for receiver in ("Lab alerts", "My webhook", "empty"):
+            with self.subTest(receiver=receiver):
+                calls = []
+
+                def grafana(method, path, body=None):
+                    calls.append((method, path))
+                    if path == "/contact-points?name=Lab%20alerts":
+                        return [MODULE.INBOX]
+                    if path == "/policies":
+                        return {"receiver": receiver, "routes": [{"receiver": "Another destination"}]}
+                    raise AssertionError((method, path))
+
+                with mock.patch.object(MODULE, "grafana", side_effect=grafana):
+                    MODULE.ensure_routing()
+
+                self.assertEqual(calls, [("GET", "/contact-points?name=Lab%20alerts"), ("GET", "/policies")])
+
+    def test_new_grafana_routes_to_the_inbox(self):
+        calls = []
+
+        def grafana(method, path, body=None):
+            calls.append((method, path))
+            if path == "/contact-points?name=Lab%20alerts":
+                return []
+            if method == "GET" and path == "/policies":
+                return {"receiver": "empty"}
+            return None
+
+        with mock.patch.object(MODULE, "grafana", side_effect=grafana):
+            MODULE.ensure_routing()
+
+        self.assertEqual(calls, [
+            ("GET", "/contact-points?name=Lab%20alerts"),
+            ("POST", "/contact-points"),
+            ("GET", "/policies"),
+            ("PUT", "/policies"),
+        ])
+
     def test_webhook_urls_choose_the_matching_integration(self):
         cases = {
             "https://discord.com/api/webhooks/1/abc": ("discord", "https://discord.com/api/webhooks/1/abc"),
